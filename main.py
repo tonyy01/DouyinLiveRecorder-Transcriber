@@ -31,6 +31,7 @@ from src import spider, stream
 from src.proxy import ProxyDetector
 from src.utils import logger
 from src import utils
+from src.transcriber import Transcriber
 from msg_push import (
     dingtalk, xizhi, tg_bot, send_email, bark, ntfy, pushplus
 )
@@ -270,6 +271,87 @@ def converts_m4a(converts_file_path: str, is_original_delete: bool = True) -> No
         logger.error(f'An unknown error occurred: {e}')
 
 
+def transcribe_video(video_file_path: str) -> None:
+    """
+    转录视频文件
+    
+    Args:
+        video_file_path: 视频文件路径
+    """
+    try:
+        if not enable_transcription:
+            return
+        
+        if not os.path.exists(video_file_path) or os.path.getsize(video_file_path) == 0:
+            logger.warning(f"视频文件不存在或为空，跳过转录: {video_file_path}")
+            return
+        
+        # 音频文件不转录
+        if '音频' in video_file_path or video_file_path.endswith(('.mp3', '.m4a')):
+            logger.info(f"音频文件不进行转录: {video_file_path}")
+            return
+        
+        color_obj.print_colored(f"开始转录视频: {os.path.basename(video_file_path)}\n", color_obj.YELLOW)
+        
+        # 创建转录器
+        transcriber = Transcriber(
+            model_name=transcription_model,
+            language=transcription_language if transcription_language else None,
+            output_format=transcription_format,
+            device=transcription_device
+        )
+        
+        # 执行转录
+        output_dir = os.path.dirname(video_file_path)
+        result = transcriber.transcribe_video(video_file_path, output_dir)
+        
+        if result:
+            color_obj.print_colored(f"转录完成: {os.path.basename(result)}\n", color_obj.GREEN)
+        else:
+            color_obj.print_colored(f"转录失败\n", color_obj.RED)
+            
+    except Exception as e:
+        logger.error(f'转录过程发生错误: {e}')
+
+
+def wait_for_file_and_transcribe(original_path: str, converted_path: str, should_convert: bool, max_wait: int = 60) -> None:
+    """
+    等待文件转换完成后进行转录
+    
+    Args:
+        original_path: 原始文件路径
+        converted_path: 转换后的文件路径
+        should_convert: 是否需要转换
+        max_wait: 最大等待时间（秒）
+    """
+    target_path = converted_path if should_convert else original_path
+    
+    # 等待文件存在且大小稳定
+    wait_time = 0
+    last_size = -1
+    stable_count = 0
+    
+    while wait_time < max_wait:
+        if os.path.exists(target_path):
+            current_size = os.path.getsize(target_path)
+            if current_size == last_size and current_size > 0:
+                stable_count += 1
+                if stable_count >= 3:  # 文件大小稳定3秒
+                    break
+            else:
+                stable_count = 0
+            last_size = current_size
+        
+        time.sleep(1)
+        wait_time += 1
+    
+    # 执行转录
+    if os.path.exists(target_path) and os.path.getsize(target_path) > 0:
+        transcribe_video(target_path)
+    else:
+        logger.warning(f"等待文件转换超时或文件不存在: {target_path}")
+
+
 def generate_subtitles(record_name: str, ass_filename: str, sub_format: str = 'srt') -> None:
     index_time = 0
     today = datetime.datetime.now()
@@ -458,8 +540,21 @@ def check_subprocess(record_name: str, record_url: str, ffmpeg_command: list, sa
                 for path in file_paths:
                     if prefix in path:
                         threading.Thread(target=converts_mp4, args=(path, delete_origin_file)).start()
+                        # 转录视频
+                        if enable_transcription:
+                            final_path = path.rsplit('.', maxsplit=1)[0] + ".mp4"
+                            threading.Thread(target=wait_for_file_and_transcribe, args=(path, final_path, converts_to_mp4)).start()
             else:
                 threading.Thread(target=converts_mp4, args=(save_file_path, delete_origin_file)).start()
+                # 转录视频
+                if enable_transcription:
+                    final_path = save_file_path.rsplit('.', maxsplit=1)[0] + ".mp4"
+                    threading.Thread(target=wait_for_file_and_transcribe, args=(save_file_path, final_path, converts_to_mp4)).start()
+        else:
+            # 非TS格式或不转换mp4时，直接转录
+            if enable_transcription:
+                threading.Thread(target=transcribe_video, args=(save_file_path,)).start()
+        
         print(f"\n{record_name} {stop_time} 直播录制完成\n")
 
         if script_command:
@@ -1556,6 +1651,13 @@ def start_record(url_data: tuple, count_variable: int = -1) -> None:
                                                                     target=converts_mp4,
                                                                     args=(path, delete_origin_file)
                                                                 ).start()
+                                                                # 转录分段视频
+                                                                if enable_transcription:
+                                                                    final_path = path.rsplit('.', maxsplit=1)[0] + ".mp4"
+                                                                    threading.Thread(
+                                                                        target=wait_for_file_and_transcribe, 
+                                                                        args=(path, final_path, converts_to_mp4)
+                                                                    ).start()
                                                             except subprocess.CalledProcessError as e:
                                                                 logger.error(f"转码失败: {e} ")
                                                 return
@@ -1593,6 +1695,13 @@ def start_record(url_data: tuple, count_variable: int = -1) -> None:
                                                 threading.Thread(
                                                     target=converts_mp4, args=(save_file_path, delete_origin_file)
                                                 ).start()
+                                                # 转录单个视频
+                                                if enable_transcription:
+                                                    final_path = save_file_path.rsplit('.', maxsplit=1)[0] + ".mp4"
+                                                    threading.Thread(
+                                                        target=wait_for_file_and_transcribe, 
+                                                        args=(save_file_path, final_path, converts_to_mp4)
+                                                    ).start()
                                                 return
 
                                         except subprocess.CalledProcessError as e:
@@ -1826,6 +1935,14 @@ while True:
     create_time_file = options.get(read_config_value(config, '录制设置', '生成时间字幕文件', "否"), False)
     is_run_script = options.get(read_config_value(config, '录制设置', '是否录制完成后执行自定义脚本', "否"), False)
     custom_script = read_config_value(config, '录制设置', '自定义脚本执行命令', "") if is_run_script else None
+    
+    # 转录设置
+    enable_transcription = options.get(read_config_value(config, '转录设置', '是否开启转录功能(是/否)', "否"), False)
+    transcription_model = read_config_value(config, '转录设置', '转录模型(tiny/base/small/medium/large)', 'base')
+    transcription_language = read_config_value(config, '转录设置', '转录语言(留空自动检测,zh/en等)', '')
+    transcription_format = read_config_value(config, '转录设置', '转录输出格式(srt/txt/vtt/json)', 'srt')
+    transcription_device = read_config_value(config, '转录设置', '转录设备(auto/cpu/cuda)', 'auto')
+    
     enable_proxy_platform = read_config_value(
         config, '录制设置', '使用代理录制的平台(逗号分隔)',
         'tiktok, soop, pandalive, winktv, flextv, popkontv, twitch, liveme, showroom, chzzk, shopee, shp, youtu, faceit'
