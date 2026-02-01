@@ -8,7 +8,7 @@
 [![Latest Release](https://img.shields.io/github/v/release/ihmily/DouyinLiveRecorder)](https://github.com/ihmily/DouyinLiveRecorder/releases/latest)
 [![Downloads](https://img.shields.io/github/downloads/ihmily/DouyinLiveRecorder/total)](https://github.com/ihmily/DouyinLiveRecorder/releases/latest)
 
-一款**简易**的可循环值守的直播录制工具，基于FFmpeg实现多平台直播源录制，支持自定义配置录制以及直播状态推送。
+一款**简易**的可循环值守的直播录制工具，基于FFmpeg实现多平台直播源录制，支持自定义配置录制以及直播状态推送。**新增转录功能**，可自动将录制的视频转录为字幕文件。
 
 </div>
 
@@ -283,6 +283,68 @@ https://www.imkktv.com/h5/share/video.html?uid=1845195&roomId=1710496
 Picarto:
 https://www.picarto.tv/cuteavalanche
 ```
+
+&emsp;
+
+## 🎙️转录功能
+
+本项目新增了视频转录功能，可以自动将录制的直播视频转录为字幕文件（支持 SRT、TXT、VTT、JSON 格式）。
+
+### 配置转录功能
+
+在 `config/config.ini` 文件中的 `[转录设置]` 部分进行配置：
+
+```ini
+[转录设置]
+是否开启转录功能(是/否) = 否
+转录模型(tiny/base/small/medium/large) = base
+转录语言(留空自动检测,zh/en等) = 
+转录输出格式(srt/txt/vtt/json) = srt
+转录设备(auto/cpu/cuda) = auto
+```
+
+### 配置说明
+
+- **是否开启转录功能**: 设置为 `是` 即可开启转录功能
+- **转录模型**: 选择 Whisper 模型大小
+  - `tiny`: 最快，准确度较低（~1GB 内存）
+  - `base`: 平衡速度和准确度（~1GB 内存）**推荐**
+  - `small`: 较好的准确度（~2GB 内存）
+  - `medium`: 高准确度（~5GB 内存）
+  - `large`: 最高准确度（~10GB 内存）
+- **转录语言**: 指定语言代码可提高准确度和速度
+  - 留空：自动检测语言
+  - `zh`: 中文
+  - `en`: 英文
+  - 其他语言代码参考 [ISO 639-1](https://en.wikipedia.org/wiki/List_of_ISO_639-1_codes)
+- **转录输出格式**: 
+  - `srt`: 字幕文件（SubRip，最常用）
+  - `txt`: 纯文本
+  - `vtt`: WebVTT 字幕
+  - `json`: JSON 格式（包含时间戳和详细信息）
+- **转录设备**: 
+  - `auto`: 自动选择（有 GPU 则用 GPU）
+  - `cpu`: 强制使用 CPU
+  - `cuda`: 强制使用 NVIDIA GPU（需要安装 CUDA）
+
+### 使用示例
+
+1. 在配置文件中开启转录功能：
+   ```ini
+   是否开启转录功能(是/否) = 是
+   转录模型(tiny/base/small/medium/large) = base
+   转录语言(留空自动检测,zh/en等) = zh
+   ```
+
+2. 运行录制程序，录制完成后会自动生成转录文件
+3. 转录文件与视频文件保存在同一目录，文件名相同但扩展名不同（如 `video.mp4` 对应 `video.srt`）
+
+### 注意事项
+
+- 转录功能依赖 OpenAI Whisper，首次使用会自动下载模型文件
+- 转录过程可能比较耗时，具体取决于视频长度和所选模型
+- 建议在有 GPU 的机器上使用以加快转录速度
+- 音频文件（mp3、m4a）不会进行转录
 
 &emsp;
 

@@ -1614,6 +1614,12 @@ def start_record(url_data: tuple, count_variable: int = -1) -> None:
                                                                     target=converts_mp4,
                                                                     args=(path, delete_origin_file)
                                                                 ).start()
+                                                                # 转录分段视频
+                                                                if enable_transcription:
+                                                                    final_path = path.rsplit('.', maxsplit=1)[0] + ".mp4"
+                                                                    threading.Thread(
+                                                                        target=lambda p=path, fp=final_path: (time.sleep(5), transcribe_video(fp if converts_to_mp4 else p))
+                                                                    ).start()
                                                             except subprocess.CalledProcessError as e:
                                                                 logger.error(f"转码失败: {e} ")
                                                 return
@@ -1651,6 +1657,12 @@ def start_record(url_data: tuple, count_variable: int = -1) -> None:
                                                 threading.Thread(
                                                     target=converts_mp4, args=(save_file_path, delete_origin_file)
                                                 ).start()
+                                                # 转录单个视频
+                                                if enable_transcription:
+                                                    final_path = save_file_path.rsplit('.', maxsplit=1)[0] + ".mp4"
+                                                    threading.Thread(
+                                                        target=lambda: (time.sleep(5), transcribe_video(final_path if converts_to_mp4 else save_file_path))
+                                                    ).start()
                                                 return
 
                                         except subprocess.CalledProcessError as e:
