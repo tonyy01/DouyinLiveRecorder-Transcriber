@@ -314,6 +314,44 @@ def transcribe_video(video_file_path: str) -> None:
         logger.error(f'转录过程发生错误: {e}')
 
 
+def wait_for_file_and_transcribe(original_path: str, converted_path: str, should_convert: bool, max_wait: int = 60) -> None:
+    """
+    等待文件转换完成后进行转录
+    
+    Args:
+        original_path: 原始文件路径
+        converted_path: 转换后的文件路径
+        should_convert: 是否需要转换
+        max_wait: 最大等待时间（秒）
+    """
+    target_path = converted_path if should_convert else original_path
+    
+    # 等待文件存在且大小稳定
+    wait_time = 0
+    last_size = -1
+    stable_count = 0
+    
+    while wait_time < max_wait:
+        if os.path.exists(target_path):
+            current_size = os.path.getsize(target_path)
+            if current_size == last_size and current_size > 0:
+                stable_count += 1
+                if stable_count >= 3:  # 文件大小稳定3秒
+                    break
+            else:
+                stable_count = 0
+            last_size = current_size
+        
+        time.sleep(1)
+        wait_time += 1
+    
+    # 执行转录
+    if os.path.exists(target_path) and os.path.getsize(target_path) > 0:
+        transcribe_video(target_path)
+    else:
+        logger.warning(f"等待文件转换超时或文件不存在: {target_path}")
+
+
 def generate_subtitles(record_name: str, ass_filename: str, sub_format: str = 'srt') -> None:
     index_time = 0
     today = datetime.datetime.now()
@@ -504,15 +542,14 @@ def check_subprocess(record_name: str, record_url: str, ffmpeg_command: list, sa
                         threading.Thread(target=converts_mp4, args=(path, delete_origin_file)).start()
                         # 转录视频
                         if enable_transcription:
-                            # 如果需要转换为mp4，等待转换完成后再转录
                             final_path = path.rsplit('.', maxsplit=1)[0] + ".mp4"
-                            threading.Thread(target=lambda: (time.sleep(5), transcribe_video(final_path if converts_to_mp4 else path))).start()
+                            threading.Thread(target=wait_for_file_and_transcribe, args=(path, final_path, converts_to_mp4)).start()
             else:
                 threading.Thread(target=converts_mp4, args=(save_file_path, delete_origin_file)).start()
                 # 转录视频
                 if enable_transcription:
                     final_path = save_file_path.rsplit('.', maxsplit=1)[0] + ".mp4"
-                    threading.Thread(target=lambda: (time.sleep(5), transcribe_video(final_path if converts_to_mp4 else save_file_path))).start()
+                    threading.Thread(target=wait_for_file_and_transcribe, args=(save_file_path, final_path, converts_to_mp4)).start()
         else:
             # 非TS格式或不转换mp4时，直接转录
             if enable_transcription:
@@ -1618,7 +1655,8 @@ def start_record(url_data: tuple, count_variable: int = -1) -> None:
                                                                 if enable_transcription:
                                                                     final_path = path.rsplit('.', maxsplit=1)[0] + ".mp4"
                                                                     threading.Thread(
-                                                                        target=lambda p=path, fp=final_path: (time.sleep(5), transcribe_video(fp if converts_to_mp4 else p))
+                                                                        target=wait_for_file_and_transcribe, 
+                                                                        args=(path, final_path, converts_to_mp4)
                                                                     ).start()
                                                             except subprocess.CalledProcessError as e:
                                                                 logger.error(f"转码失败: {e} ")
@@ -1661,7 +1699,8 @@ def start_record(url_data: tuple, count_variable: int = -1) -> None:
                                                 if enable_transcription:
                                                     final_path = save_file_path.rsplit('.', maxsplit=1)[0] + ".mp4"
                                                     threading.Thread(
-                                                        target=lambda: (time.sleep(5), transcribe_video(final_path if converts_to_mp4 else save_file_path))
+                                                        target=wait_for_file_and_transcribe, 
+                                                        args=(save_file_path, final_path, converts_to_mp4)
                                                     ).start()
                                                 return
 
